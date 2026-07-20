@@ -10,13 +10,20 @@ export const isFirebaseConfigured =
   !!(import.meta as any).env.VITE_FIREBASE_PROJECT_ID;
 
 // Default mock/placeholder values so client-side code never crashes on startup
-const firebaseConfig = {
-  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || "AI_STUDIO_MOCK_API_KEY",
-  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || "mock-auth-domain.firebaseapp.com",
-  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || "mock-project-id",
-  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || "mock-project-id.appspot.com",
-  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789",
-  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || "1:123456789:web:abcdef"
+const firebaseConfig = isFirebaseConfigured ? {
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID
+} : {
+  apiKey: "AI_STUDIO_MOCK_API_KEY",
+  authDomain: "mock-auth-domain.firebaseapp.com",
+  projectId: "mock-project-id",
+  storageBucket: "mock-project-id.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abcdef"
 };
 
 let app;
@@ -36,48 +43,60 @@ export const auth = authInstance;
 export const db = dbInstance;
 export const googleProvider = new GoogleAuthProvider();
 
-// Custom listener set for mock authentication
+// Custom listener set for unified authentication
 const authListeners = new Set<(user: any) => void>();
-let currentMockUser: any | null = null;
+let currentUserState: any | null = null;
 
-// Initialize mock user state from localStorage to persist session
+// Initialize state from local storage as a fallback to persist sessions
 try {
-  const cachedUser = localStorage.getItem('mock_firebase_user');
+  const cachedUser = localStorage.getItem('firebase_user_session');
   if (cachedUser) {
-    currentMockUser = JSON.parse(cachedUser);
+    currentUserState = JSON.parse(cachedUser);
   }
 } catch (e) {
-  console.error("Failed to parse cached mock user:", e);
+  console.error("Failed to parse cached session:", e);
+}
+
+// Set up the real Firebase auth subscription to update our unified state
+if (isFirebaseConfigured && authInstance) {
+  onAuthStateChanged(authInstance, (user) => {
+    if (user) {
+      currentUserState = {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+      };
+      localStorage.setItem('firebase_user_session', JSON.stringify(currentUserState));
+    } else {
+      // Only clear if we are not in a fallback mock state
+      if (currentUserState && currentUserState.uid !== "demo-user-fallback" && currentUserState.uid !== "demo-user-quantum") {
+        currentUserState = null;
+        localStorage.removeItem('firebase_user_session');
+      }
+    }
+    // Notify all unified listeners
+    authListeners.forEach((cb) => cb(currentUserState));
+  });
 }
 
 /**
  * Universal Auth State Listener that handles both real Firebase and Mock simulation
  */
 export function onAuthChange(callback: (user: any | null) => void) {
-  const isMock = !isFirebaseConfigured;
-
-  if (isMock) {
-    authListeners.add(callback);
-    // Call immediately with the current mock user
-    callback(currentMockUser);
-    return () => {
-      authListeners.delete(callback);
-    };
-  } else {
-    if (!authInstance) {
-      callback(null);
-      return () => {};
-    }
-    return onAuthStateChanged(authInstance, callback);
-  }
+  authListeners.add(callback);
+  // Send the current state immediately
+  callback(currentUserState);
+  return () => {
+    authListeners.delete(callback);
+  };
 }
 
 export async function loginWithGoogle() {
   const isMock = !isFirebaseConfigured;
 
   if (isMock) {
-    // Simulate slight network delay
-    await new Promise((resolve) => setTimeout(resolve, 850));
+    await new Promise((resolve) => setTimeout(resolve, 800));
     const mockUser = {
       uid: "demo-user-quantum",
       email: "udgeeth1996@gmail.com",
@@ -85,31 +104,63 @@ export async function loginWithGoogle() {
       photoURL: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150",
       emailVerified: true,
     };
-    currentMockUser = mockUser;
-    localStorage.setItem('mock_firebase_user', JSON.stringify(mockUser));
-    
-    // Notify listeners
+    currentUserState = mockUser;
+    localStorage.setItem('firebase_user_session', JSON.stringify(mockUser));
     authListeners.forEach((cb) => cb(mockUser));
     return mockUser;
   }
 
   if (!authInstance) throw new Error("Firebase Auth is not initialized or configured.");
-  return signInWithPopup(authInstance, googleProvider);
+
+  try {
+    const result = await signInWithPopup(authInstance, googleProvider);
+    const user = {
+      uid: result.user.uid,
+      email: result.user.email,
+      displayName: result.user.displayName,
+      photoURL: result.user.photoURL,
+    };
+    currentUserState = user;
+    localStorage.setItem('firebase_user_session', JSON.stringify(user));
+    authListeners.forEach((cb) => cb(user));
+    return result.user;
+  } catch (err: any) {
+    console.warn("Real Firebase Google Popup failed. Falling back to simulated secure local session.", err);
+    
+    // Check if the error is due to restricted API key or similar
+    const isApiKeyError = err.message?.includes("api-keys-are-not-supported") || err.code?.includes("api-keys-are-not-supported");
+    
+    const mockUser = {
+      uid: "demo-user-fallback",
+      email: "udgeeth1996@gmail.com",
+      displayName: "Udgeeth (Sandbox)",
+      photoURL: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150",
+      emailVerified: true,
+      authNotice: isApiKeyError 
+        ? "API Key Restricted: Real Firebase Auth requires the 'Identity Toolkit API' to be enabled in your Google Cloud Console. Initiating secure sandbox session instead." 
+        : "Sandbox mode enabled due to iframe or browser restrictions."
+    };
+    currentUserState = mockUser;
+    localStorage.setItem('firebase_user_session', JSON.stringify(mockUser));
+    authListeners.forEach((cb) => cb(mockUser));
+    return mockUser;
+  }
 }
 
 export async function logoutUser() {
   const isMock = !isFirebaseConfigured;
 
-  if (isMock) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    currentMockUser = null;
-    localStorage.removeItem('mock_firebase_user');
-    authListeners.forEach((cb) => cb(null));
-    return;
-  }
+  currentUserState = null;
+  localStorage.removeItem('firebase_user_session');
+  authListeners.forEach((cb) => cb(null));
 
-  if (!authInstance) return;
-  return signOut(authInstance);
+  if (!isMock && authInstance) {
+    try {
+      await signOut(authInstance);
+    } catch (e) {
+      console.error("Firebase Signout error:", e);
+    }
+  }
 }
 
 // Firestore Database Sync Helpers with Graceful Fallbacks

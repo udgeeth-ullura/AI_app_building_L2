@@ -78,12 +78,34 @@ export default function CanvasEditor({
     return () => clearInterval(interval);
   }, [loading]);
 
-  // Run face analysis using gemini-3.1-pro-preview once when a photo is present
+  // Run face analysis once when a photo is present
   useEffect(() => {
     if (userPhoto) {
       runFaceAnalysis();
     }
   }, [userPhoto]);
+
+  // Automatically regenerate backdrop and reset states when Selected Era/Custom Era/Mode changes
+  useEffect(() => {
+    // Clear previous AI blended results when era changes so the user doesn't see outdated images
+    setAiBlendedResult(null);
+    setError(null);
+    setStickers([]);
+    setSelectedStickerId(null);
+
+    const prompt = customEraActive ? customEraText : selectedEra.defaultPrompt;
+    setCustomBgPrompt(prompt || '');
+
+    if (editorMode === 'manual') {
+      if (prompt) {
+        generateBackground(prompt);
+      } else {
+        setBgImageUrl(null);
+      }
+    } else {
+      setBgImageUrl(null);
+    }
+  }, [selectedEra, customEraActive, customEraText, editorMode]);
 
   // Fetch analysis of user face
   const runFaceAnalysis = async () => {

@@ -215,6 +215,38 @@ export default function App() {
           </div>
         )}
 
+        {/* Display Sandbox Fallback/API Restriction notice */}
+        {currentUser?.authNotice && (
+          <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-start gap-3 justify-between">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+              <div>
+                <h4 className="font-bold text-amber-950 text-sm">Sandbox Mode Activated (API Key Restricted)</h4>
+                <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                  {currentUser.authNotice}
+                </p>
+                <div className="mt-2 text-xs text-amber-900 bg-amber-100/50 p-2.5 rounded-lg border border-amber-200/40">
+                  <span className="font-bold">How to fix real Firebase login:</span>
+                  <ol className="list-decimal pl-4 mt-1 space-y-1">
+                    <li>Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="underline font-semibold hover:text-indigo-800">Google Cloud Console API Credentials page</a>.</li>
+                    <li>Select your project and edit the restricted API key you created for Firebase.</li>
+                    <li>Under <strong>API restrictions</strong>, either set to "Don't restrict key" or ensure the <strong>Identity Toolkit API</strong> and <strong>Token Service API</strong> are checked in the permitted list.</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                // Clear the notice locally for this session
+                setCurrentUser({ ...currentUser, authNotice: null });
+              }}
+              className="text-amber-400 hover:text-amber-900 transition p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* STEP 1 & STEP 2 ROW (Side-by-side on desktop) */}
         <section id="setup-section" className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Step 1: Face Portrait Capture */}

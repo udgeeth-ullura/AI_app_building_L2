@@ -55,7 +55,7 @@ Keep your response strictly under 140 words, very warm, complementary, and inspi
       };
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.5-flash",
         contents: { parts: [imagePart, textPart] },
       });
 
