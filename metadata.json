@@ -1,0 +1,10 @@
+{
+  "name": "Time-Travel Photo Booth",
+  "description": "Snap a photo and transport yourself into different historical eras using Gemini AI image generation and analysis.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
