@@ -4,7 +4,9 @@ import CameraBooth from './components/CameraBooth';
 import SceneSelector from './components/SceneSelector';
 import CanvasEditor from './components/CanvasEditor';
 import HistoryGallery from './components/HistoryGallery';
-import { Hourglass, Sparkles, RefreshCw, Compass, ArrowDown, HelpCircle, History } from 'lucide-react';
+import UserAuthHeader from './components/UserAuthHeader';
+import { auth, savePhotoToCloud, fetchPhotosFromCloud, deletePhotoFromCloud, onAuthChange } from './lib/firebase';
+import { Hourglass, Sparkles, RefreshCw, Compass, ArrowDown, HelpCircle, History, AlertTriangle, X } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function App() {
@@ -13,9 +15,15 @@ export default function App() {
   const [customEraActive, setCustomEraActive] = useState<boolean>(false);
   const [customEraText, setCustomEraText] = useState<string>('');
   const [savedPhotos, setSavedPhotos] = useState<TimeTravelPhoto[]>([]);
+  
+  // Firebase Auth & Cloud Sync States
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Load photos from localStorage on mount
+  // Load photos from localStorage on mount & subscribe to Auth updates
   useEffect(() => {
+    // Initial load from local storage
     try {
       const cached = localStorage.getItem('time_travel_photos');
       if (cached) {
@@ -24,27 +32,108 @@ export default function App() {
     } catch (err) {
       console.error("Failed to load saved photos:", err);
     }
+
+    const unsubscribe = onAuthChange(async (firebaseUser) => {
+      setCurrentUser(firebaseUser);
+      if (firebaseUser) {
+        setIsSyncing(true);
+        try {
+          // Fetch synced photos from Firestore cloud
+          const cloudPhotos = await fetchPhotosFromCloud(firebaseUser.uid);
+          
+          // Merge strategy: sync local photos created before signing in to their account
+          const cachedLocal = localStorage.getItem('time_travel_photos');
+          let localPhotos: TimeTravelPhoto[] = [];
+          if (cachedLocal) {
+            try {
+              localPhotos = JSON.parse(cachedLocal);
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          if (localPhotos.length > 0) {
+            const cloudIds = new Set(cloudPhotos.map(p => p.id));
+            const unsyncedPhotos = localPhotos.filter(p => !cloudIds.has(p.id));
+
+            if (unsyncedPhotos.length > 0) {
+              console.log(`Syncing ${unsyncedPhotos.length} unsynced photos to Firebase Cloud...`);
+              for (const photo of unsyncedPhotos) {
+                await savePhotoToCloud(firebaseUser.uid, photo);
+              }
+              const refreshedCloudPhotos = await fetchPhotosFromCloud(firebaseUser.uid);
+              setSavedPhotos(refreshedCloudPhotos);
+              localStorage.setItem('time_travel_photos', JSON.stringify(refreshedCloudPhotos));
+            } else {
+              setSavedPhotos(cloudPhotos);
+              localStorage.setItem('time_travel_photos', JSON.stringify(cloudPhotos));
+            }
+          } else {
+            setSavedPhotos(cloudPhotos);
+            localStorage.setItem('time_travel_photos', JSON.stringify(cloudPhotos));
+          }
+        } catch (err) {
+          console.error("Cloud synchronizer loading error: ", err);
+        } finally {
+          setIsSyncing(false);
+        }
+      } else {
+        // Logged out: fallback to local storage
+        try {
+          const cached = localStorage.getItem('time_travel_photos');
+          if (cached) {
+            setSavedPhotos(JSON.parse(cached));
+          } else {
+            setSavedPhotos([]);
+          }
+        } catch (err) {
+          console.error("Local recovery error on logout:", err);
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Persist photos on change
-  const handleSavePhoto = (newPhoto: TimeTravelPhoto) => {
+  // Persist photos on change (Cloud + Local storage integration)
+  const handleSavePhoto = async (newPhoto: TimeTravelPhoto) => {
     const updated = [newPhoto, ...savedPhotos];
     setSavedPhotos(updated);
+    
     try {
       localStorage.setItem('time_travel_photos', JSON.stringify(updated));
     } catch (err) {
-      console.error("Failed to persist photos:", err);
+      console.error("Failed to persist photos locally:", err);
+    }
+
+    if (currentUser) {
+      setIsSyncing(true);
+      const success = await savePhotoToCloud(currentUser.uid, newPhoto);
+      if (!success) {
+        console.warn("Failed to synchronize save event with Google Cloud.");
+      }
+      setIsSyncing(false);
     }
   };
 
-  const handleDeletePhoto = (id: string) => {
+  const handleDeletePhoto = async (id: string) => {
     if (confirm("Are you sure you want to permanently erase this record from the historical archives?")) {
       const updated = savedPhotos.filter(p => p.id !== id);
       setSavedPhotos(updated);
+      
       try {
         localStorage.setItem('time_travel_photos', JSON.stringify(updated));
       } catch (err) {
-        console.error("Failed to persist deleted photo list:", err);
+        console.error("Failed to persist deleted photo list locally:", err);
+      }
+
+      if (currentUser) {
+        setIsSyncing(true);
+        const success = await deletePhotoFromCloud(currentUser.uid, id);
+        if (!success) {
+          console.warn("Failed to synchronize delete event with Google Cloud.");
+        }
+        setIsSyncing(false);
       }
     }
   };
@@ -60,7 +149,7 @@ export default function App() {
       <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
       {/* Main Container */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
         
         {/* Application Header Banner */}
         <header id="app-header" className="relative bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950 rounded-3xl p-8 md:p-12 text-white shadow-xl overflow-hidden border border-indigo-900/30">
@@ -72,7 +161,7 @@ export default function App() {
           <div className="relative z-10 max-w-3xl space-y-4">
             <div className="inline-flex items-center gap-1.5 bg-white/10 backdrop-blur px-3 py-1 rounded-full border border-white/10 text-xs font-semibold text-indigo-300">
               <Hourglass className="w-3.5 h-3.5 text-indigo-400 animate-spin duration-5000" />
-              Chronal Warp Device v3.1
+              Chronal Warp Device v3.2
             </div>
             
             <h1 id="app-title" className="text-4xl md:text-5xl font-extrabold tracking-tight font-display bg-gradient-to-r from-white via-indigo-100 to-purple-200 bg-clip-text text-transparent">
@@ -99,6 +188,32 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {/* Firebase Authentication Synchronizer */}
+        <UserAuthHeader 
+          user={currentUser} 
+          isSyncing={isSyncing} 
+          onAuthError={setAuthError} 
+        />
+
+        {/* Display Auth Errors gracefully */}
+        {authError && (
+          <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex items-start gap-3 justify-between">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-red-950 text-sm">Authentication Notice</h4>
+                <p className="text-xs text-red-700 mt-0.5 leading-relaxed">{authError}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setAuthError(null)}
+              className="text-red-400 hover:text-red-900 transition p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* STEP 1 & STEP 2 ROW (Side-by-side on desktop) */}
         <section id="setup-section" className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -176,3 +291,4 @@ export default function App() {
     </div>
   );
 }
+

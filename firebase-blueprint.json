@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account created upon authentication",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User profile photo"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Epoch timestamp of creation"
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "TimeTravelPhoto": {
+      "title": "TimeTravelPhoto",
+      "description": "A saved historical travel composite photo",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "number"
+        },
+        "eraId": {
+          "type": "string"
+        },
+        "eraName": {
+          "type": "string"
+        },
+        "sourcePhotoUrl": {
+          "type": "string"
+        },
+        "resultPhotoUrl": {
+          "type": "string"
+        },
+        "analysisText": {
+          "type": "string"
+        },
+        "promptUsed": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "userId", "timestamp", "eraId", "eraName", "sourcePhotoUrl", "resultPhotoUrl"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "#/entities/User",
+      "description": "User profiles"
+    },
+    "users/{userId}/photos/{photoId}": {
+      "schema": "#/entities/TimeTravelPhoto",
+      "description": "Saved time travel creations for the user"
+    }
+  }
+}
